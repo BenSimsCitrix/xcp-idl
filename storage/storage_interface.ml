@@ -157,7 +157,7 @@ type file = {
 
 type nbd = {
   uri: string;
-  (** NBD URI of the form nbd:unix:<domain-socket>:exportname=<NAME> (this
+  (** NBD URI of the form nbd:unix:<domain-socket>:[exportname=<NAME>] (this
       format is used by qemu-system:
       https://manpages.debian.org/stretch/qemu-system-x86/qemu-system-x86_64.1.en.html) *)
 } [@@deriving rpcty]
@@ -174,23 +174,26 @@ type backend = {
 } [@@deriving rpcty]
 
 
+let finesse_exportname socket exportname =
+  let fail () =
+    failwith ("Could not parse nbd exportname: " ^ exportname)
+  in
+  let prefix = "exportname=" in
+  match Astring.String.cuts ~empty:false ~sep:prefix exportname with
+  | [x] -> (socket, x)
+  | [] -> (socket, "")
+  | _ -> fail()
+
 (** Extracts the UNIX domain socket path and the export name from the NBD URI in
     the NBD information returned from the VDI.attach2 SMAPIv2 call.
-    This has the format nbd:unix:<domain-socket>:exportname=<name> *)
+    This has the format nbd:unix:<domain-socket>:[exportname=<name>] *)
 let parse_nbd_uri nbd =
   let { uri } = nbd in
   let fail () =
     failwith ("Could not parse NBD URI returned from the storage backend: " ^ uri)
   in
   match String.split_on_char ':' uri with
-  | ["nbd"; "unix"; socket; exportname] -> begin
-      let prefix = "exportname=" in
-      if not (Astring.String.is_prefix ~affix:prefix exportname) then fail ();
-      match Astring.String.cuts ~empty:false ~sep:prefix exportname with
-      | [exportname] ->
-        (socket, exportname)
-      | _ -> fail ()
-    end
+  | ["nbd"; "unix"; socket; exportname] -> finesse_exportname socket exportname 
   | _ -> fail ()
 
 (** Separates the implementations of the given backend returned from
